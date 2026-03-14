@@ -16,6 +16,7 @@ class GuandanUI:
     WINDOW_HEIGHT = 800
     CARD_WIDTH = 70
     CARD_HEIGHT = 100
+    CARD_SPACING = -30  # Negative for overlapping cards
 
     # Colors
     TABLE_COLOR = (34, 139, 34)  # Green felt
@@ -44,10 +45,34 @@ class GuandanUI:
         self.screen = pygame.display.set_mode((self.WINDOW_WIDTH, self.WINDOW_HEIGHT))
         pygame.display.set_caption("掼蛋游戏")
 
-        # Fonts
-        self.font_large = pygame.font.SysFont('simhei', 32, bold=True)
-        self.font_medium = pygame.font.SysFont('simhei', 24)
-        self.font_small = pygame.font.SysFont('simhei', 18)
+        # Fonts - macOS Chinese font support
+        import os
+        font_paths = [
+            '/System/Library/Fonts/PingFang.ttc',  # macOS PingFang
+            '/System/Library/Fonts/STHeiti Light.ttc',  # macOS Heiti
+            '/System/Library/Fonts/Hiragino Sans GB.ttc',  # macOS Hiragino
+        ]
+
+        # Try to find a working Chinese font
+        self.font_large = None
+        self.font_medium = None
+        self.font_small = None
+
+        for font_path in font_paths:
+            if os.path.exists(font_path):
+                try:
+                    self.font_large = pygame.font.Font(font_path, 32)
+                    self.font_medium = pygame.font.Font(font_path, 24)
+                    self.font_small = pygame.font.Font(font_path, 18)
+                    break
+                except:
+                    continue
+
+        # Fallback to default
+        if self.font_large is None:
+            self.font_large = pygame.font.Font(None, 48)
+            self.font_medium = pygame.font.Font(None, 36)
+            self.font_small = pygame.font.Font(None, 24)
 
         # Game instance
         self.game = GuandanGame()
@@ -101,16 +126,50 @@ class GuandanUI:
 
     def _handle_mouse(self, pos: tuple, button: int):
         """Handle mouse clicks"""
-        # Check if clicking on player's cards
+        # Force update card_areas first
+        self._update_card_areas()
+
+        # Right click = pass (不出)
+        if button == 3:
+            self._pass_cards()
+            return
+
+        # Left click only below here
+        # Check if clicking on "pass" button
+        if hasattr(self, 'pass_button_rect'):
+            if self.pass_button_rect.collidepoint(pos):
+                self._pass_cards()
+                return
+
+        # Check if clicking on player's cards - iterate in reverse (right to left)
+        # because rightmost cards are drawn on top in overlapping layout
         if 0 in self.card_areas:
-            for x, y, w, h, card in self.card_areas[0]:
+            # Reverse the list to check rightmost cards first
+            for x, y, w, h, card in reversed(self.card_areas[0]):
+                # Check if click is within card bounds
                 if x <= pos[0] <= x + w and y <= pos[1] <= y + h:
                     if button == 1:  # Left click - select/deselect
                         self._toggle_card_selection(card)
-                    elif button == 3:  # Right click - deselect
-                        if card in self.selected_cards:
-                            self.selected_cards.remove(card)
                     return
+
+    def _update_card_areas(self):
+        """Update card click areas based on current hand"""
+        self.card_areas = {}
+        player = self.game.players[0]
+        hand = player.hand
+        if not hand:
+            return
+
+        card_y = self.WINDOW_HEIGHT - self.CARD_HEIGHT - 50
+        # Correct formula: n cards = n * width + (n-1) * spacing
+        total_width = len(hand) * self.CARD_WIDTH + (len(hand) - 1) * self.CARD_SPACING
+        start_x = (self.WINDOW_WIDTH - total_width) // 2
+
+        for i, card in enumerate(hand):
+            card_x = start_x + i * (self.CARD_WIDTH + self.CARD_SPACING)
+            self.card_areas.setdefault(0, []).append(
+                (card_x, card_y, self.CARD_WIDTH, self.CARD_HEIGHT, card)
+            )
 
     def _toggle_card_selection(self, card: Card):
         """Toggle card selection"""
@@ -127,6 +186,11 @@ class GuandanUI:
 
         if self.game.current_player != 0:
             self._show_message("等待其他玩家...")
+            return
+
+        # Check if player has already played this round
+        if len(self.game.current_play) > 0 and self.game.current_play[0] is not None:
+            self._show_message("你已出过牌了")
             return
 
         # Check if selection is valid
@@ -152,8 +216,8 @@ class GuandanUI:
         legal_actions = self.game.get_legal_actions(player_id)
 
         if not legal_actions:
-            # Pass or skip
-            self.game.current_player = (self.game.current_player + 1) % 4
+            # Pass - use pass_play to properly record the pass
+            self.game.pass_play(player_id)
             return
 
         # Simple AI: play the first valid action
@@ -193,8 +257,8 @@ class GuandanUI:
         # Fill background
         self.screen.fill(self.TABLE_COLOR)
 
-        # Render card areas (clear previous)
-        self.card_areas = {}
+        # Update card click areas
+        self._update_card_areas()
 
         # Render four players' hands
         self._render_player_hand(0, 'bottom')  # South (self)
@@ -216,6 +280,9 @@ class GuandanUI:
             else:
                 self.message = None
 
+        # Render pass button if player can pass
+        self._render_pass_button()
+
         # Render help text
         self._render_help_text()
 
@@ -231,19 +298,15 @@ class GuandanUI:
         if position == 'bottom':
             # Player's own hand (bottom, horizontal)
             card_y = self.WINDOW_HEIGHT - self.CARD_HEIGHT - 50
-            card_spacing = 25
-            total_width = len(hand) * card_spacing + self.CARD_WIDTH
+            card_spacing = self.CARD_SPACING
+            # Correct formula: n cards = n * width + (n-1) * spacing
+            total_width = len(hand) * self.CARD_WIDTH + (len(hand) - 1) * card_spacing
             start_x = (self.WINDOW_WIDTH - total_width) // 2
 
             for i, card in enumerate(hand):
-                card_x = start_x + i * card_spacing
+                card_x = start_x + i * (self.CARD_WIDTH + card_spacing)
                 is_selected = card in self.selected_cards
                 self._render_card(card_x, card_y, card, is_selected)
-
-                # Record click area
-                self.card_areas.setdefault(player_id, []).append(
-                    (card_x, card_y, self.CARD_WIDTH, self.CARD_HEIGHT, card)
-                )
 
             # Render player name
             name = f"{self.POSITION_NAMES[player_id]} (你)" if player_id == 0 else self.POSITION_NAMES[player_id]
@@ -412,6 +475,11 @@ class GuandanUI:
             self.screen.blit(hint_text, (text_x, text_y))
             return
 
+        # Debug: show current_play state
+        debug_text = f"current_play: {self.game.current_play}"
+        debug_surf = self.font_small.render(debug_text, True, (255, 0, 0))
+        self.screen.blit(debug_surf, (10, 50))
+
         # Render each player's played cards
         for player_id, cards in enumerate(self.game.current_play):
             if cards is None:
@@ -421,15 +489,23 @@ class GuandanUI:
             if player_id == 0:  # South
                 x = center_x - len(cards) * 20 // 2
                 y = center_y + 80
+                label = "南家"
             elif player_id == 2:  # North
                 x = center_x - len(cards) * 20 // 2
                 y = center_y - 80 - self.CARD_HEIGHT
+                label = "北家"
             elif player_id == 1:  # West
                 x = center_x - 150
                 y = center_y - self.CARD_HEIGHT // 2
+                label = "西家"
             else:  # East
-                x = center_x + 150 - len(cards) * 20
+                x = center_x + 150
                 y = center_y - self.CARD_HEIGHT // 2
+                label = "东家"
+
+            # Render label
+            label_surf = self.font_small.render(label, True, (255, 255, 0))
+            self.screen.blit(label_surf, (x, y - 20))
 
             # Render played cards
             for i, card in enumerate(cards):
@@ -484,9 +560,50 @@ class GuandanUI:
         # Text
         self.screen.blit(text_surface, text_rect)
 
+    def _render_pass_button(self):
+        """Render pass button when player can pass"""
+        # Check if player can pass (not first to play or has no valid moves)
+        if self.game.current_player != 0:
+            return
+
+        # Check if there are legal actions (if none, player must pass)
+        legal_actions = self.game.get_legal_actions(0)
+        if legal_actions:
+            return  # Player has valid moves, no pass button needed
+
+        # Draw pass button
+        button_width = 100
+        button_height = 40
+        button_x = self.WINDOW_WIDTH - button_width - 20
+        button_y = self.WINDOW_HEIGHT - self.CARD_HEIGHT - 100
+
+        self.pass_button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
+        pygame.draw.rect(self.screen, self.BUTTON_COLOR, self.pass_button_rect, border_radius=5)
+        pygame.draw.rect(self.screen, (255, 255, 255), self.pass_button_rect, 2, border_radius=5)
+
+        text_surface = self.font_medium.render("不出", True, self.TEXT_COLOR)
+        text_rect = text_surface.get_rect(center=self.pass_button_rect.center)
+        self.screen.blit(text_surface, text_rect)
+
+    def _pass_cards(self):
+        """Player chooses to pass"""
+        if self.game.current_player != 0:
+            self._show_message("等待其他玩家...")
+            return
+
+        # Check if player can pass
+        legal_actions = self.game.get_legal_actions(0)
+        if legal_actions:
+            self._show_message("你有合法的牌可以出")
+            return
+
+        # Pass
+        self.game.pass_play(0)
+        self._show_message("不出")
+
     def _render_help_text(self):
         """Render help text at bottom"""
-        help_text = "左键: 选牌 | 右键: 取消 | 空格: 出牌 | H: 提示 | R: 重新开始"
+        help_text = "左键: 选牌/出牌 | 右键: 不出 | 空格: 出牌 | H: 提示 | R: 重新开始"
         help_surface = self.font_small.render(help_text, True, (200, 200, 200))
         help_x = (self.WINDOW_WIDTH - help_surface.get_width()) // 2
         self.screen.blit(help_surface, (help_x, self.WINDOW_HEIGHT - 30))

@@ -198,22 +198,47 @@ class GuandanGame:
 
         return True
 
+    def pass_play(self, player_id: int) -> bool:
+        """
+        玩家不出牌（过）
+
+        Args:
+            player_id: 玩家ID
+
+        Returns:
+            是否成功过牌
+        """
+        # 验证玩家是否轮到你
+        if player_id != self.current_player:
+            return False
+
+        # 记录过牌
+        if len(self.current_play) <= player_id:
+            self.current_play.extend([None] * (player_id - len(self.current_play) + 1))
+        self.current_play[player_id] = None
+
+        # 检查是否一轮结束（所有玩家都出过牌或pass）
+        self._check_round_end()
+
+        # 切换到下一个玩家
+        self._next_player()
+
+        return True
+
     def _next_player(self):
         """切换到下一个玩家"""
         self.current_player = (self.current_player + 1) % 4
 
     def _check_round_end(self):
         """检查一轮是否结束"""
-        # 检查是否所有玩家都出过牌
+        # 检查是否所有玩家都出过牌（play或pass）
         if len(self.current_play) < 4:
             return
 
-        # 检查是否所有非空出牌都已完成
-        non_empty_count = sum(1 for play in self.current_play if play is not None)
-        if non_empty_count >= 4:
-            # 一轮结束，找到本轮获胜者
-            winner_id = self._get_round_winner()
-            self._on_round_end(winner_id)
+        # 所有4个玩家都已行动，一轮结束
+        # 找到本轮获胜者
+        winner_id = self._get_round_winner()
+        self._on_round_end(winner_id)
 
     def _get_round_winner(self) -> int:
         """获取本轮获胜者"""
