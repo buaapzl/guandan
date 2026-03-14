@@ -1,0 +1,26 @@
+[project]
+name = "guandan"
+version = "0.1.0"
+description = "掼蛋游戏RL训练平台"
+requires-python = ">=3.10"
+dependencies = [
+    "gymnasium>=0.29.0",
+    "stable-baselines3>=2.0.0",
+    "pygame>=2.5.0",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
