@@ -94,11 +94,16 @@ class GuandanUI:
 
     def run(self):
         """Main game loop"""
+        prev_player = -1
         while self.running:
             current_time = pygame.time.get_ticks()
 
             # Handle AI moves
             if self.game.current_player != 0:  # Not player's turn
+                # Reset timer when player changes
+                if self.game.current_player != prev_player:
+                    self.last_ai_time = 0
+                    prev_player = self.game.current_player
                 if current_time - self.last_ai_time > self.ai_delay:
                     self._ai_play()
                     self.last_ai_time = current_time
@@ -474,11 +479,6 @@ class GuandanUI:
             text_y = center_y - hint_text.get_height() // 2
             self.screen.blit(hint_text, (text_x, text_y))
             return
-
-        # Debug: show current_play state
-        debug_text = f"current_play: {self.game.current_play}"
-        debug_surf = self.font_small.render(debug_text, True, (255, 0, 0))
-        self.screen.blit(debug_surf, (10, 50))
 
         # Render each player's played cards
         for player_id, cards in enumerate(self.game.current_play):
